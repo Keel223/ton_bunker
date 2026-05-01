@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>TON Bunker</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://telegram.adsgram.ai/sdk.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f1a; color: #fff; text-align: center; margin: 0; padding: 0; height: 100vh; overflow: hidden; }
+        .navbar { position: fixed; bottom: 0; left: 0; width: 100%; background: #1c1c30; display: flex; justify-content: space-around; padding: 15px 0; border-top: 1px solid #2a2a40; z-index: 100; }
+        .nav-btn { background: none; border: none; color: #666; font-size: 24px; cursor: pointer; transition: color 0.2s; }
+        .nav-btn.active { color: #00d2ff; }
+        .screen { display: none; padding: 20px; padding-bottom: 80px; height: 100vh; box-sizing: border-box; overflow-y: auto; }
+        .screen.active { display: block; }
+        .panel { background: #1c1c30; border-radius: 15px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        h2 { margin: 0 0 10px; color: #00d2ff; }
+        .stat { font-size: 18px; margin: 5px 0; color: #b0b0c0; }
+        .stat span { color: #fff; font-weight: bold; }
+        .btn { background: linear-gradient(180deg, #00d2ff 0%, #0088cc 100%); color: white; border: none; padding: 18px; width: 100%; font-size: 20px; font-weight: bold; border-radius: 12px; cursor: pointer; margin-top: 10px; transition: transform 0.1s; }
+        .btn:active { transform: scale(0.95); }
+        .btn:disabled { background: #444; color: #888; transform: none; }
+        .btn-green { background: linear-gradient(180deg, #28a745 0%, #1e7e34 100%); }
+        .btn-danger { background: linear-gradient(180deg, #ff4c4c 0%, #c82333 100%); }
+        #timer { font-size: 80px; font-weight: 900; color: #ff4c4c; margin: 20px 0; text-shadow: 0 0 20px rgba(255,76,76,0.5); }
+        input { width: 80%; padding: 15px; border-radius: 10px; border: 1px solid #444; background: #0f0f1a; color: white; font-size: 16px; text-align: center; margin-top: 10px; }
+        .log { margin-top: 15px; color: #00d2ff; min-height: 40px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="screen-login" class="screen active">
+        <div style="margin-top: 30vh;">
+            <h1 style="font-size: 40px; color: #ff4c4c;">☢️ TON BUNKER</h1>
+            <p style="color: #b0b0c0; font-size: 20px;">Выживи и забери приз!</p>
+            <p style="color: #666; font-size: 14px;">4 игрока. 1 таймер. Последний забирает 60% банка.</p>
+            <button class="btn" onclick="enterGame()" style="margin-top: 40px;">🚪 Войти в бункер</button>
+        </div>
+    </div>
+
+    <div id="screen-lobby" class="screen">
+        <div class="panel">
+            <h2>⏳ Ожидание игроков</h2>
+            <div class="stat">Игроков: <span id="players">1</span>/4</div>
+            <div class="stat">Приз: <span id="lobby-fund">0.0000</span> TON</div>
+        </div>
+        <p style="color: #666;">Ждем 4-х человек. Не закрывайте приложение!</p>
+        <div id="lobby-log" class="log"></div>
+    </div>
+
+    <div id="screen-game" class="screen">
+        <div class="panel">
+            <div class="stat">Призовой фонд: <span id="game-fund">0.0000</span> TON</div>
+        </div>
+        <div>Кислород кончается через:</div>
+        <div id="timer">60</div>
+        <button id="breathe-btn" class="btn btn-danger" onclick="watchAdToBreathe()">🫁 Подать кислород (Реклама)</button>
+        <div id="game-log" class="log" style="color: #ff4c4c;"></div>
+    </div>
+
+    <div id="screen-wallet" class="screen">
+        <div class="panel">
+            <h2>💰 Кошелек</h2>
+            <div class="stat">Баланс: <span id="balance">0.0000</span> TON</div>
+        </div>
+        <div class="panel">
+            <h2>↗️ Вывод</h2>
+            <input type="text" id="fp-address" placeholder="Адрес кошелька TON (FaucetPay)">
+            <button class="btn btn-green" onclick="withdrawTON()">Вывести TON</button>
+            <div id="wallet-log" class="log" style="color: #28a745;"></div>
+        </div>
+    </div>
+
+    <div id="navbar" class="navbar" style="display: none;">
+        <button class="nav-btn active" onclick="showScreen('screen-game')">🎮 Игра</button>
+        <button class="nav-btn" onclick="showScreen('screen-wallet')">💰 Кошелек</button>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand(); 
+        
+        const userId = tg.initDataUnsafe.user.id; 
+        const AdController = window.Adsgram.init({ blockId: "f18bdf74a5274b2f9c688fbb8ae3c4f0" });
+
+        let currentRoom = null;
+        let pollInterval = null;
+
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            if(screenId === 'screen-game') document.querySelectorAll('.nav-btn')[0].classList.add('active');
+            if(screenId === 'screen-wallet') document.querySelectorAll('.nav-btn')[1].classList.add('active');
+        }
+
+        async function apiRequest(body) {
+            const res = await fetch('/api/game', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            return res.json();
+        }
+
+        async function enterGame() {
+            document.getElementById('lobby-log').innerText = "Поиск бункера...";
+            const data = await apiRequest({ action: 'join', userId: userId });
+            currentRoom = data.roomId;
+            updateUI(data);
+            document.getElementById('navbar').style.display = 'flex';
+            showScreen('screen-lobby');
+            if (!pollInterval) pollInterval = setInterval(pollServer, 2000); 
+        }
+
+        async function pollServer() {
+            if (!currentRoom) return;
+            const data = await apiRequest({ action: 'poll', userId: userId, roomId: currentRoom });
+            updateUI(data);
+
+            if (data.status === 'playing') {
+                showScreen('screen-game');
+                document.getElementById('timer').innerText = data.remainingTime;
+                document.getElementById('game-fund').innerText = Number(data.fund).toFixed(4); 
+            } else if (data.status === 'ended') {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                endGame(data);
+            }
+        }
+
+        async function watchAdToBreathe() {
+            const btn = document.getElementById('breathe-btn');
+            btn.disabled = true;
+            btn.innerText = "Загрузка рекламы...";
+            try {
+                const result = await AdController.show();
+                if (result.state === 'completed') {
+                    btn.innerText = "Обработка...";
+                    const data = await apiRequest({ action: 'ad_click', userId: userId, roomId: currentRoom });
+                    if (data.success) {
+                        document.getElementById('game-fund').innerText = Number(data.newFund).toFixed(4);
+                        document.getElementById('timer').innerText = "60"; 
+                        document.getElementById('game-log').innerText = "✅ Кислород подан!";
+                    }
+                } else {
+                    document.getElementById('game-log').innerText = "❌ Реклама не досмотрена!";
+                }
+            } catch (error) {
+                document.getElementById('game-log').innerText = "⚠️ Реклама недоступна.";
+            }
+            btn.disabled = false;
+            btn.innerText = "🫁 Подать кислород (Реклама)";
+        }
+
+        async function withdrawTON() {
+            const address = document.getElementById('fp-address').value;
+            if (!address) { alert("Введите адрес!"); return; }
+            document.getElementById('wallet-log').innerText = "Отправка...";
+            const data = await apiRequest({ action: 'withdraw', userId: userId, to: address });
+            if (data.success) {
+                document.getElementById('wallet-log').innerText = `✅ Успех! ${Number(data.amount).toFixed(4)} TON отправлено.`;
+                document.getElementById('balance').innerText = Number(data.newBalance).toFixed(4);
+            } else {
+                document.getElementById('wallet-log').innerText = `❌ Ошибка: ${data.message}`;
+            }
+        }
+
+        function updateUI(data) {
+            if (data.playerCount) document.getElementById('players').innerText = data.playerCount;
+            if (data.fund !== undefined) document.getElementById('lobby-fund').innerText = Number(data.fund).toFixed(4);
+            if (data.userBalance !== undefined) document.getElementById('balance').innerText = Number(data.userBalance).toFixed(4);
+        }
+
+        function endGame(data) {
+            if (data.winnerId === userId) {
+                document.getElementById('game-log').innerHTML = `🎉 ВЫ ПОБЕДИЛИ!<br>+${Number(data.winnerPrize).toFixed(4)} TON`;
+            } else {
+                document.getElementById('game-log').innerHTML = `💀 Вы проиграли.<br>Компенсация: +${Number(data.loserPrize).toFixed(4)} TON`;
+            }
+            updateUI(data);
+            setTimeout(() => { 
+                currentRoom = null;
+                showScreen('screen-login'); 
+                document.getElementById('navbar').style.display = 'none';
+                document.getElementById('game-log').innerText = '';
+            }, 5000);
+        }
+    </script>
+</body>
+                            </html>

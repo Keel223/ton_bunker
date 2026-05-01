@@ -1,0 +1,8 @@
+{
+  "name": "ton-bunker",
+  "version": "1.0.0",
+  "dependencies": {
+    "@upstash/redis": "^1.28.4",
+    "axios": "^1.6.0"
+  }
+}

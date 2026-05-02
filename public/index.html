@@ -9,7 +9,7 @@
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f1a; color: #fff; text-align: center; margin: 0; padding: 0; height: 100vh; overflow: hidden; }
         .navbar { position: fixed; bottom: 0; left: 0; width: 100%; background: #1c1c30; display: flex; justify-content: space-around; padding: 15px 0; border-top: 1px solid #2a2a40; z-index: 100; }
-        .nav-btn { background: none; border: none; color: #666; font-size: 24px; cursor: pointer; transition: color 0.2s; }
+        .nav-btn { background: none; border: none; color: #666; font-size: 24px; cursor: pointer; }
         .nav-btn.active { color: #00d2ff; }
         .screen { display: none; padding: 20px; padding-bottom: 80px; height: 100vh; box-sizing: border-box; overflow-y: auto; }
         .screen.active { display: block; }
@@ -17,7 +17,7 @@
         h2 { margin: 0 0 10px; color: #00d2ff; }
         .stat { font-size: 18px; margin: 5px 0; color: #b0b0c0; }
         .stat span { color: #fff; font-weight: bold; }
-        .btn { background: linear-gradient(180deg, #00d2ff 0%, #0088cc 100%); color: white; border: none; padding: 18px; width: 100%; font-size: 20px; font-weight: bold; border-radius: 12px; cursor: pointer; margin-top: 10px; transition: transform 0.1s; }
+        .btn { background: linear-gradient(180deg, #00d2ff 0%, #0088cc 100%); color: white; border: none; padding: 18px; width: 100%; font-size: 20px; font-weight: bold; border-radius: 12px; cursor: pointer; margin-top: 10px; }
         .btn:active { transform: scale(0.95); }
         .btn:disabled { background: #444; color: #888; transform: none; }
         .btn-green { background: linear-gradient(180deg, #28a745 0%, #1e7e34 100%); }
@@ -45,7 +45,6 @@
             <div class="stat">Приз: <span id="lobby-fund">0.0000</span> TON</div>
         </div>
         <p style="color: #666;">Ждем 4-х человек. Не закрывайте приложение!</p>
-        <div id="lobby-log" class="log"></div>
     </div>
 
     <div id="screen-game" class="screen">
@@ -77,14 +76,23 @@
     </div>
 
     <script>
-        const tg = window.Telegram.WebApp;
+        const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : { expand: () => {}, initDataUnsafe: { user: { id: 999999 } } };
         tg.expand(); 
-        
         const userId = tg.initDataUnsafe.user.id; 
-        const AdController = window.Adsgram.init({ blockId: "f18bdf74a5274b2f9c688fbb8ae3c4f0" });
-
+        
         let currentRoom = null;
+        let AdController = null;
         let pollInterval = null;
+
+        function initAdsgram() {
+            if (window.Adsgram && currentRoom) {
+                // ПЕРЕДАЕМ ID КОМНАТЫ В КАЧЕСТВЕ CUSTOM_DATA ДЛЯ КОЛЛБЭКА
+                AdController = window.Adsgram.init({ 
+                    blockId: "f18bdf74a5274b2f9c688fbb8ae3c4f0",
+                    customData: currentRoom 
+                });
+            }
+        }
 
         function showScreen(screenId) {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -95,22 +103,25 @@
         }
 
         async function apiRequest(body) {
-            const res = await fetch('/api/game', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-            return res.json();
+            try {
+                const res = await fetch('/api/game', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                return await res.json();
+            } catch (e) { return {}; }
         }
 
         async function enterGame() {
-            document.getElementById('lobby-log').innerText = "Поиск бункера...";
             const data = await apiRequest({ action: 'join', userId: userId });
+            if (!data.roomId) return;
+            
             currentRoom = data.roomId;
+            initAdsgram(); // Инициализируем рекламу с привязкой к комнате
+            
             updateUI(data);
             document.getElementById('navbar').style.display = 'flex';
             showScreen('screen-lobby');
-            if (!pollInterval) pollInterval = setInterval(pollServer, 2000); 
+            
+            if (pollInterval) clearInterval(pollInterval);
+            setTimeout(() => { pollInterval = setInterval(pollServer, 2000); }, 1000);
         }
 
         async function pollServer() {
@@ -123,34 +134,34 @@
                 document.getElementById('timer').innerText = data.remainingTime;
                 document.getElementById('game-fund').innerText = Number(data.fund).toFixed(4); 
             } else if (data.status === 'ended') {
-                clearInterval(pollInterval);
-                pollInterval = null;
-                endGame(data);
+                clearInterval(pollInterval); pollInterval = null; endGame(data);
             }
         }
 
         async function watchAdToBreathe() {
+            if (!AdController) { alert("Реклама не загружена!"); return; }
             const btn = document.getElementById('breathe-btn');
-            btn.disabled = true;
-            btn.innerText = "Загрузка рекламы...";
+            btn.disabled = true; btn.innerText = "Загрузка рекламы...";
+            
             try {
                 const result = await AdController.show();
                 if (result.state === 'completed') {
-                    btn.innerText = "Обработка...";
-                    const data = await apiRequest({ action: 'ad_click', userId: userId, roomId: currentRoom });
-                    if (data.success) {
-                        document.getElementById('game-fund').innerText = Number(data.newFund).toFixed(4);
+                    btn.innerText = "Проверка...";
+                    document.getElementById('game-log').innerText = "✅ Реклама просмотрена! Обновляем...";
+                    // Ждем 2-3 секунды, пока AdsGram стукнет по нашему adreward.js и база обновится
+                    setTimeout(() => {
                         document.getElementById('timer').innerText = "60"; 
-                        document.getElementById('game-log').innerText = "✅ Кислород подан!";
-                    }
+                        document.getElementById('game-log').innerText = "✅ Таймер сброшен!";
+                        btn.disabled = false; btn.innerText = "🫁 Подать кислород (Реклама)";
+                    }, 2500); 
                 } else {
                     document.getElementById('game-log').innerText = "❌ Реклама не досмотрена!";
+                    btn.disabled = false; btn.innerText = "🫁 Подать кислород (Реклама)";
                 }
             } catch (error) {
-                document.getElementById('game-log').innerText = "⚠️ Реклама недоступна.";
+                document.getElementById('game-log').innerText = "⚠️ Ошибка загрузки.";
+                btn.disabled = false; btn.innerText = "🫁 Подать кислород (Реклама)";
             }
-            btn.disabled = false;
-            btn.innerText = "🫁 Подать кислород (Реклама)";
         }
 
         async function withdrawTON() {
@@ -161,9 +172,7 @@
             if (data.success) {
                 document.getElementById('wallet-log').innerText = `✅ Успех! ${Number(data.amount).toFixed(4)} TON отправлено.`;
                 document.getElementById('balance').innerText = Number(data.newBalance).toFixed(4);
-            } else {
-                document.getElementById('wallet-log').innerText = `❌ Ошибка: ${data.message}`;
-            }
+            } else { document.getElementById('wallet-log').innerText = `❌ Ошибка: ${data.message}`; }
         }
 
         function updateUI(data) {
@@ -173,19 +182,11 @@
         }
 
         function endGame(data) {
-            if (data.winnerId === userId) {
-                document.getElementById('game-log').innerHTML = `🎉 ВЫ ПОБЕДИЛИ!<br>+${Number(data.winnerPrize).toFixed(4)} TON`;
-            } else {
-                document.getElementById('game-log').innerHTML = `💀 Вы проиграли.<br>Компенсация: +${Number(data.loserPrize).toFixed(4)} TON`;
-            }
+            if (data.winnerId === userId) { document.getElementById('game-log').innerHTML = `🎉 ВЫ ПОБЕДИЛИ!<br>+${Number(data.winnerPrize).toFixed(4)} TON`; } 
+            else { document.getElementById('game-log').innerHTML = `💀 Вы проиграли.<br>Компенсация: +${Number(data.loserPrize).toFixed(4)} TON`; }
             updateUI(data);
-            setTimeout(() => { 
-                currentRoom = null;
-                showScreen('screen-login'); 
-                document.getElementById('navbar').style.display = 'none';
-                document.getElementById('game-log').innerText = '';
-            }, 5000);
+            setTimeout(() => { currentRoom = null; showScreen('screen-login'); document.getElementById('navbar').style.display = 'none'; document.getElementById('game-log').innerText = ''; }, 5000);
         }
     </script>
 </body>
-                            </html>
+</html>

@@ -4,9 +4,9 @@ import axios from 'axios';
 // ==========================================
 // НАСТРОЙКИ БАЗЫ ДАННЫХ UPSTASH (ОБЯЗАТЕЛЬНО ВСТАВЬТЕ СВОИ)
 // ==========================================
-const UPSTASH_URL = 'https://willing-cicada-111832.upstash.io
+const UPSTASH_URL = 'https://ng-cicada-111832.upstash.io
 '; // Например: https://us1-xxx.upstash.io
-const UPSTASH_TOKEN = 'gQAAAAAAAbTYAAIgcDE3OWExNWY2NTdkMTk0NDE1ODA3YzNiY2Y5OThkYTYwYg
+const UPSTASH_TOKEN = 'gQAAbTYAAIgcDE3OWExNWY2NTdkMTk0NDE1ODA3YzNiY2Y5OThkYTYwYg
 '; // Длинная строка с буквами и цифрами
 
 const redis = new Redis({ url: UPSTASH_URL, token: UPSTASH_TOKEN });
